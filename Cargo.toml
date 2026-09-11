@@ -1,8 +1,13 @@
 [package]
 name = "proxylog"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
-description = "Mini HTTP proxy for intercepting and logging requests"
+description = "A lightweight HTTP proxy for intercepting and logging HTTP traffic"
+license = "MIT"
+repository = "https://github.com/yourusername/ProxyLog"
+keywords = ["proxy", "http", "logging", "debug", "network"]
+categories = ["command-line-utilities", "network-programming"]
+readme = "README.md"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
@@ -12,3 +17,12 @@ hyper-util = { version = "0.1", features = ["full"] }
 http-body-util = "0.1"
 bytes = "1"
 chrono = "0.4"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
