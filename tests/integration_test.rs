@@ -57,7 +57,10 @@ fn http_get_through_proxy(proxy_port: u16, host: &str, path: &str) -> String {
         .set_write_timeout(Some(Duration::from_secs(5)))
         .unwrap();
 
-    let request = format!("GET http://{}/{} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n", host, path, host);
+    let request = format!(
+        "GET http://{}/{} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n\r\n",
+        host, path, host
+    );
     std::io::Write::write_all(&mut stream, request.as_bytes()).unwrap();
 
     let mut reader = BufReader::new(stream);
@@ -80,7 +83,11 @@ fn test_proxy_starts_and_listens() {
 
     let mut proxy = start_proxy();
     let connected = wait_for_port(PROXY_PORT, Duration::from_secs(3));
-    assert!(connected, "Proxy should start and listen on port {}", PROXY_PORT);
+    assert!(
+        connected,
+        "Proxy should start and listen on port {}",
+        PROXY_PORT
+    );
 
     proxy.kill().ok();
     target.kill().ok();

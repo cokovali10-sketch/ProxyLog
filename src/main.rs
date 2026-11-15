@@ -38,7 +38,11 @@ struct Cli {
     #[arg(long, help = "Path to log file (logs to stdout if not set)")]
     log_file: Option<PathBuf>,
 
-    #[arg(long, help = "Max body bytes to log in verbose mode", default_value = "512")]
+    #[arg(
+        long,
+        help = "Max body bytes to log in verbose mode",
+        default_value = "512"
+    )]
     max_body_log: usize,
 }
 
@@ -93,7 +97,7 @@ fn log_request(
         "\x1b[36m"
     };
     let msg = format!(
-        "[{}] #{:<5} {} {:>7} {:>7} {} {}{}",
+        "[{}] #{:<5} {} {:>7} {:>7} {} {}",
         time,
         conn_id,
         status_color,
@@ -172,7 +176,7 @@ async fn handle_request(
                 Method::POST | Method::PUT | Method::PATCH | Method::DELETE
             );
 
-            let (parts, body) = req.into_parts();
+            let (_parts, body) = req.into_parts();
             let collected = body.collect().await?.to_bytes();
 
             if has_body && verbose {
@@ -184,7 +188,9 @@ async fn handle_request(
                 ));
             }
 
-            let client = hyper_util::client::legacy::Client::new(hyper_util::rt::TokioExecutor::new());
+            let client =
+                hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new())
+                    .build_http();
             let req_builder = Request::builder()
                 .method(method.clone())
                 .uri(uri.clone())
@@ -198,7 +204,7 @@ async fn handle_request(
                     log_request(&method, &uri_str, status, elapsed, &writer, conn_id);
 
                     let (parts, body) = resp.into_parts();
-                    let bytes = body.collect().await?.to_bytes();
+                    let bytes = body.collect().await?.to_bytes().to_vec();
 
                     if verbose {
                         let preview = truncate_body(&bytes, max_body_log);
@@ -209,7 +215,7 @@ async fn handle_request(
                         ));
                     }
 
-                    let mut response = Response::from_parts(parts, Full::new(bytes));
+                    let mut response = Response::from_parts(parts, Full::new(Bytes::from(bytes)));
                     response
                         .headers_mut()
                         .insert("X-Proxy-Log", "true".parse().unwrap());
@@ -217,10 +223,7 @@ async fn handle_request(
                 }
                 Err(e) => {
                     let elapsed = start.elapsed().as_millis();
-                    writer.write_log(&format!(
-                        "\x1b[31mError proxying {}: {}\x1b[0m",
-                        uri_str, e
-                    ));
+                    writer.write_log(&format!("\x1b[31mError proxying {}: {}\x1b[0m", uri_str, e));
                     log_request(
                         &method,
                         &uri_str,
@@ -288,6 +291,7 @@ Configure your browser to use \x1b[1m{}:{}\x1b[0m as HTTP proxy.
         let conn_id = CONNECTION_COUNT.fetch_add(1, Ordering::Relaxed);
 
         tokio::spawn(async move {
+            let error_writer = Arc::clone(&writer);
             let service = service_fn(move |req| {
                 let verbose = verbose;
                 let writer = Arc::clone(&writer);
@@ -299,11 +303,8 @@ Configure your browser to use \x1b[1m{}:{}\x1b[0m as HTTP proxy.
                 }
             });
 
-            if let Err(err) = http1::Builder::new()
-                .serve_connection(io, service)
-                .await
-            {
-                writer.write_log(&format!(
+            if let Err(err) = http1::Builder::new().serve_connection(io, service).await {
+                error_writer.write_log(&format!(
                     "\x1b[31mConnection error from {}: {}\x1b[0m",
                     remote, err
                 ));
