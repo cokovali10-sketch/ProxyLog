@@ -29,7 +29,7 @@ struct Cli {
     #[arg(short, long, default_value = "8080", help = "Port to listen on")]
     port: u16,
 
-    #[arg(short, long, default_value = "127.0.0.1", help = "Host to bind to")]
+    #[arg(short = 'H', long, default_value = "127.0.0.1", help = "Host to bind to")]
     host: String,
 
     #[arg(short, long, help = "Enable verbose output (headers, body preview)")]
