@@ -136,17 +136,19 @@ fn test_logging_output() {
     let _ = http_get_through_proxy(PROXY_PORT, "127.0.0.1", &format!("{}/", TARGET_PORT));
     std::thread::sleep(Duration::from_millis(200));
 
-    let mut stderr_output = String::new();
-    if let Some(ref mut stderr) = proxy_handle.0.stderr {
+    // The proxy logs requests to stdout; read what the pipe has produced so far.
+    let mut output = String::new();
+    if let Some(ref mut stdout) = proxy_handle.0.stdout {
         use std::io::Read;
-        stderr.read_to_string(&mut stderr_output).ok();
+        let _ = stdout.read_to_string(&mut output);
     }
 
     assert!(
-        stderr_output.contains("127.0.0.1") || stderr_output.contains("GET"),
-        "Expected verbose logging output, got stderr: {}",
-        &stderr_output[..stderr_output.len().min(300)]
+        output.contains("127.0.0.1") || output.contains("GET"),
+        "Expected verbose logging output, got stdout: {}",
+        &output[..output.len().min(300)]
     );
+}
 }
 
 #[test]
