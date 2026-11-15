@@ -6,7 +6,17 @@ use std::time::Duration;
 const PROXY_PORT: u16 = 18080;
 const TARGET_PORT: u16 = 18081;
 
-fn start_target_server() -> Child {
+/// Kills and reaps the child process when it goes out of scope.
+struct ChildGuard(Child);
+
+impl Drop for ChildGuard {
+    fn drop(&mut self) {
+        let _ = self.0.kill();
+        let _ = self.0.wait();
+    }
+}
+
+fn start_target_server() -> ChildGuard {
     Command::new("python")
         .args([
             "-m",
@@ -19,9 +29,10 @@ fn start_target_server() -> Child {
         .stderr(Stdio::null())
         .spawn()
         .expect("Failed to start target server")
+        .into()
 }
 
-fn start_proxy() -> Child {
+fn start_proxy() -> ChildGuard {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let bin_path = std::path::Path::new(manifest_dir)
         .join("target")
@@ -34,6 +45,13 @@ fn start_proxy() -> Child {
         .stderr(Stdio::piped())
         .spawn()
         .expect("Failed to start proxy")
+        .into()
+}
+
+impl From<Child> for ChildGuard {
+    fn from(child: Child) -> Self {
+        ChildGuard(child)
+    }
 }
 
 fn wait_for_port(port: u16, timeout: Duration) -> bool {
@@ -78,27 +96,24 @@ fn http_get_through_proxy(proxy_port: u16, host: &str, path: &str) -> String {
 
 #[test]
 fn test_proxy_starts_and_listens() {
-    let mut target = start_target_server();
+    let _target = start_target_server();
     std::thread::sleep(Duration::from_millis(500));
 
-    let mut proxy = start_proxy();
+    let _proxy = start_proxy();
     let connected = wait_for_port(PROXY_PORT, Duration::from_secs(3));
     assert!(
         connected,
         "Proxy should start and listen on port {}",
         PROXY_PORT
     );
-
-    proxy.kill().ok();
-    target.kill().ok();
 }
 
 #[test]
 fn test_forwarding_request() {
-    let mut target = start_target_server();
+    let _target = start_target_server();
     std::thread::sleep(Duration::from_millis(500));
 
-    let mut proxy = start_proxy();
+    let _proxy = start_proxy();
     wait_for_port(PROXY_PORT, Duration::from_secs(3));
 
     let response = http_get_through_proxy(PROXY_PORT, "127.0.0.1", &format!("{}/", TARGET_PORT));
@@ -108,30 +123,24 @@ fn test_forwarding_request() {
         "Expected HTTP 200 response, got: {}",
         &response[..response.len().min(200)]
     );
-
-    proxy.kill().ok();
-    target.kill().ok();
 }
 
 #[test]
 fn test_logging_output() {
-    let mut target = start_target_server();
+    let _target = start_target_server();
     std::thread::sleep(Duration::from_millis(500));
 
-    let mut proxy = start_proxy();
+    let mut proxy_handle = start_proxy();
     wait_for_port(PROXY_PORT, Duration::from_secs(3));
 
     let _ = http_get_through_proxy(PROXY_PORT, "127.0.0.1", &format!("{}/", TARGET_PORT));
     std::thread::sleep(Duration::from_millis(200));
 
     let mut stderr_output = String::new();
-    if let Some(ref mut stderr) = proxy.stderr {
+    if let Some(ref mut stderr) = proxy_handle.0.stderr {
         use std::io::Read;
         stderr.read_to_string(&mut stderr_output).ok();
     }
-
-    proxy.kill().ok();
-    target.kill().ok();
 
     assert!(
         stderr_output.contains("127.0.0.1") || stderr_output.contains("GET"),
@@ -142,7 +151,7 @@ fn test_logging_output() {
 
 #[test]
 fn test_proxy_returns_bad_gateway_for_invalid_upstream() {
-    let mut proxy = Command::new(
+    let child = Command::new(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("target")
             .join("debug")
@@ -153,6 +162,7 @@ fn test_proxy_returns_bad_gateway_for_invalid_upstream() {
     .stderr(Stdio::null())
     .spawn()
     .expect("Failed to start proxy");
+    let _proxy = ChildGuard(child);
 
     wait_for_port(18082, Duration::from_secs(3));
 
@@ -163,13 +173,11 @@ fn test_proxy_returns_bad_gateway_for_invalid_upstream() {
         "Expected 502 Bad Gateway, got: {}",
         &response[..response.len().min(200)]
     );
-
-    proxy.kill().ok();
 }
 
 #[test]
 fn test_connect_method_returns_not_implemented() {
-    let mut proxy = Command::new(
+    let child = Command::new(
         std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("target")
             .join("debug")
@@ -180,6 +188,7 @@ fn test_connect_method_returns_not_implemented() {
     .stderr(Stdio::null())
     .spawn()
     .expect("Failed to start proxy");
+    let _proxy = ChildGuard(child);
 
     wait_for_port(18083, Duration::from_secs(3));
 
@@ -199,8 +208,6 @@ fn test_connect_method_returns_not_implemented() {
         response.push_str(&line);
         line.clear();
     }
-
-    proxy.kill().ok();
 
     assert!(
         response.contains("501") || response.contains("Not Implemented"),
