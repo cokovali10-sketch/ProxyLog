@@ -149,7 +149,6 @@ fn test_logging_output() {
         &output[..output.len().min(300)]
     );
 }
-}
 
 #[test]
 fn test_proxy_returns_bad_gateway_for_invalid_upstream() {
